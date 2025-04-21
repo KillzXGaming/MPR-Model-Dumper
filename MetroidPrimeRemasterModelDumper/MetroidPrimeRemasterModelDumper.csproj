@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="AvaloniaToolbox.Core">
+      <HintPath>Lib\AvaloniaToolbox.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="ImageLibrary">
+      <HintPath>Lib\ImageLibrary.dll</HintPath>
+    </Reference>
+    <Reference Include="IONET">
+      <HintPath>..\src\AvaloniaToolbox\Lib\IONET.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpGLTF.Core">
+      <HintPath>..\src\AvaloniaToolbox\Lib\SharpGLTF.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpGLTF.Runtime">
+      <HintPath>..\src\AvaloniaToolbox\Lib\SharpGLTF.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpGLTF.Toolkit">
+      <HintPath>..\src\AvaloniaToolbox\Lib\SharpGLTF.Toolkit.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
