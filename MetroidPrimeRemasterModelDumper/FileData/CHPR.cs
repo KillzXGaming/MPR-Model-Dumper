@@ -45,7 +45,7 @@ namespace RetroStudioPlugin.Files.FileData
             public List<SFragDecode> FragDecodes = new List<SFragDecode>();
             public List<SConstPool> ConstPools = new List<SConstPool>();
             public List<CAnim> Anims = new List<CAnim>();
-            public List<SAnchorInfo> AnchorInfos= new List<SAnchorInfo>();
+            public List<SAnchorInfo> AnchorInfos = new List<SAnchorInfo>();
             public List<SModelNode> ModelNodes = new List<SModelNode>();
             public SSubCharData SubCharData;
 
@@ -79,6 +79,7 @@ namespace RetroStudioPlugin.Files.FileData
                     for (int i = 0; i < fragDecodeCount; i++)
                         FragDecodes.Add(new SFragDecode(reader));
                 }
+
                 bool hasConstPool = reader.ReadBoolean();
                 if (hasConstPool)
                 {
@@ -86,22 +87,26 @@ namespace RetroStudioPlugin.Files.FileData
                     for (int i = 0; i < constPoolCount; i++)
                         ConstPools.Add(new SConstPool(reader));
                 }
+
                 ushort unk10 = reader.ReadUInt16();
                 if (numAnims > 0)
                 {
                     for (int i = 0; i < numAnims; i++)
                         Anims.Add(new CAnim(reader));
                 }
+
                 if (numAnchorInfos > 0)
                 {
                     for (int i = 0; i < numAnchorInfos; i++)
                         AnchorInfos.Add(new SAnchorInfo(reader));
                 }
+
                 if (numModels > 0)
                 {
                     for (int i = 0; i < numModels; i++)
                         ModelNodes.Add(new SModelNode(reader));
                 }
+
                 SubCharData = new SSubCharData(reader);
 
 
@@ -110,20 +115,26 @@ namespace RetroStudioPlugin.Files.FileData
                     if (Channels[i].PooledName.HasName)
                         Console.WriteLine($"Channel[{i}] {NamePool.Strings[(int)Channels[i].PooledName.NameID]}");
                 }
+
                 for (int i = 0; i < ModelNodes.Count; i++)
                 {
                     if (ModelNodes[i].Name.HasName)
-                        Console.WriteLine($"ModelNode[{i}] {NamePool.Strings[(int)ModelNodes[i].Name.NameID]} {ModelNodes[i].ModelFileGuid}");
+                        Console.WriteLine(
+                            $"ModelNode[{i}] {NamePool.Strings[(int)ModelNodes[i].Name.NameID]} {ModelNodes[i].ModelFileGuid}");
                 }
+
                 for (int i = 0; i < Anims.Count; i++)
                 {
                     if (Anims[i].BaseInfo.PooledName.HasName)
-                        Console.WriteLine($"Anims[{i}]_{Anims[i].BaseInfo.Type} {NamePool.Strings[(int)Anims[i].BaseInfo.PooledName.NameID]}");
+                        Console.WriteLine(
+                            $"Anims[{i}]_{Anims[i].BaseInfo.Type} {NamePool.Strings[(int)Anims[i].BaseInfo.PooledName.NameID]}");
                 }
+
                 for (int i = 0; i < SubCharData.SubChars.Count; i++)
                 {
                     if (SubCharData.SubChars[i].Name.HasName)
-                        Console.WriteLine($"SubChars[{i}] {NamePool.Strings[(int)SubCharData.SubChars[i].Name.NameID]}");
+                        Console.WriteLine(
+                            $"SubChars[{i}] {NamePool.Strings[(int)SubCharData.SubChars[i].Name.NameID]}");
                 }
 
                 for (int i = 0; i < renderContext.SkinnedMatrixBoneIDs.Length; i++)
@@ -226,13 +237,16 @@ namespace RetroStudioPlugin.Files.FileData
                     if ((NodeIDs[i] & 0xFFFF) == id)
                         return i;
                 }
+
                 return -1;
             }
 
             public int GetBoneID(int index)
             {
-                return (int)(NodeIDs[index] >> 16) & 0xFFFF;;
+                return (int)(NodeIDs[index] >> 16) & 0xFFFF;
+                ;
             }
+
             public int GetBoneParentID(int index)
             {
                 return (int)(NodeIDs[index] & 0xFFFF);
@@ -472,6 +486,7 @@ namespace RetroStudioPlugin.Files.FileData
                         Unk5 = reader.ReadUInt32(),
                     });
                 }
+
                 Data = reader.ReadBytes((int)dataSize);
                 Unk3 = reader.ReadSingle();
             }
@@ -488,26 +503,28 @@ namespace RetroStudioPlugin.Files.FileData
 
         public class CGridPointData
         {
+            public byte PointCount;
             public byte Unk1;
             public byte Unk2;
             public byte Unk3;
-            public byte[] Unk4;
+            public byte Unk4;
             public byte[] Unk5;
+            public byte[] Unk6;
 
-            public CGridPointData(FileReader reader, uint size)
+            public CGridPointData(FileReader reader)
             {
+                PointCount = reader.ReadByte();
                 Unk1 = reader.ReadByte();
                 Unk2 = reader.ReadByte();
                 Unk3 = reader.ReadByte();
-                Unk4 = reader.ReadBytes((int)size);
-                Unk5 = reader.ReadBytes((int)(Unk2 != 0 ? size * 4 : 4));
+                Unk4 = reader.ReadByte();
+                Unk5 = reader.ReadBytes((int)PointCount);
+                Unk6 = reader.ReadBytes((int)(Unk1 == 0 ? PointCount * 4 : 4));
             }
         }
 
         public class CGridGeo2d
         {
-            public byte PointCount;
-            public byte Unk2;
             public CGridPointData GridPointData;
 
             public byte[] Unk3;
@@ -519,9 +536,7 @@ namespace RetroStudioPlugin.Files.FileData
 
             public CGridGeo2d(FileReader reader)
             {
-                PointCount = reader.ReadByte();
-                Unk2 = reader.ReadByte();
-                GridPointData = new CGridPointData(reader, PointCount);
+                GridPointData = new CGridPointData(reader);
                 byte num1 = reader.ReadByte();
                 byte num2 = reader.ReadByte();
                 byte num3 = reader.ReadByte();
@@ -537,8 +552,6 @@ namespace RetroStudioPlugin.Files.FileData
 
         public class CGridGeo1d
         {
-            public byte PointCount;
-            public byte Unk2;
             public CGridPointData GridPointData;
 
             public float Unk3;
@@ -548,12 +561,10 @@ namespace RetroStudioPlugin.Files.FileData
 
             public CGridGeo1d(FileReader reader)
             {
-                PointCount = reader.ReadByte();
-                Unk2 = reader.ReadByte();
-                GridPointData = new CGridPointData(reader, PointCount);
+                GridPointData = new CGridPointData(reader);
                 Unk3 = reader.ReadSingle();
                 Unk4 = reader.ReadSingle();
-                Buffer = reader.ReadBytes(PointCount * 4);
+                Buffer = reader.ReadBytes(GridPointData.PointCount * 4);
             }
         }
 
@@ -568,7 +579,7 @@ namespace RetroStudioPlugin.Files.FileData
 
             public CAnimGrid(FileReader reader)
             {
-                uint numUnk3 = reader.ReadUInt32();
+                var numUnk3 = reader.ReadInt32();
                 Type = reader.ReadByte();
                 switch (Type)
                 {
@@ -581,9 +592,17 @@ namespace RetroStudioPlugin.Files.FileData
                         Grid2 = new CGridGeo2d(reader);
                         break;
                 }
-                var numUnk2 = reader.ReadUInt32();
-                Unknowns2 = reader.ReadUInt32s((int)numUnk2);
-                Unknowns3 = reader.ReadUInt32s((int)numUnk3);
+
+                var numUnk2 = reader.ReadInt32();
+                if (numUnk2 > 0)
+                {
+                    Unknowns2 = reader.ReadUInt32s(numUnk2);
+                }
+
+                if (numUnk3 > 0)
+                {
+                    Unknowns3 = reader.ReadUInt32s(numUnk3);
+                }
             }
         }
 
@@ -676,7 +695,7 @@ namespace RetroStudioPlugin.Files.FileData
                 DataSizes = reader.ReadUInt32s((int)numSub);
                 reader.ReadUInt16();
                 for (int i = 0; i < numSub; i++)
-                    SubChars.Add( new SSubChar(reader, DataSizes[i]));
+                    SubChars.Add(new SSubChar(reader, DataSizes[i]));
             }
         }
 
@@ -715,9 +734,11 @@ namespace RetroStudioPlugin.Files.FileData
                 // String list
                 uint stringTableSize = reader.ReadUInt32();
                 var pos = reader.Position;
-                while (reader.BaseStream.Position < pos + stringTableSize) {
+                while (reader.BaseStream.Position < pos + stringTableSize)
+                {
                     Strings.Add(reader.ReadStringZeroTerminated());
                 }
+
                 reader.SeekBegin(pos + stringTableSize);
 
                 ushort groupCount = reader.ReadUInt16();
@@ -743,6 +764,7 @@ namespace RetroStudioPlugin.Files.FileData
                 return "";
             }
         }
+
         public class HashList
         {
             public uint[] Hashes;
@@ -754,6 +776,7 @@ namespace RetroStudioPlugin.Files.FileData
                 Hashes = reader.ReadUInt32s((int)count);
                 StringIDs = reader.ReadUInt32s((int)count);
             }
+
             public void Write(FileWriter writer)
             {
                 writer.Write(this.Hashes.Length);
