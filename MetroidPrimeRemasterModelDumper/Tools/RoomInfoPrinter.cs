@@ -23,7 +23,7 @@ namespace MetroidPrimeRemasterModelDumper
                 foreach (var light in layer.lightStatics)
                 {
                     // 1. Grab the base Blender rotation we already calculated
-                    Vector3 finalRotation = light.commonObjectData.entityProperties.blenderRotation;   
+                    Vector3 finalRotation = light.commonObjectData.entityProperties.rotation;   
 
                     exportLights.Add(new
                     {
@@ -252,7 +252,16 @@ namespace MetroidPrimeRemasterModelDumper
                     }
                     catch
                     {
-                        ObjectTXT += System.Environment.NewLine + "Actor CHPR ID: " + actor.chprId.ToString();
+
+                        try
+                        {
+                            ObjectTXT += System.Environment.NewLine + "Actor CHPR ID: " + actor.chprId.ToString();
+                        }
+                        catch
+                        {
+                            ObjectTXT += System.Environment.NewLine + "Couldn't find an ID to print";
+                        }
+                        
                     }
 
                     ObjectTXT += System.Environment.NewLine + "Position: " + actor.commonObjectData.entityProperties.position.X.ToString() + ", " + (-actor.commonObjectData.entityProperties.position.Z).ToString() + ", " + actor.commonObjectData.entityProperties.position.Y.ToString();

@@ -8,7 +8,7 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 {
     public class RoomSettings
     {
-        public CommonObjectData commonObjectData;
+        public CommonObjectData commonObjectData =  new CommonObjectData();
 
         public byte unknownRenderFlag;
 

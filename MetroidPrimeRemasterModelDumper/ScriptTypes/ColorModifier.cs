@@ -8,13 +8,13 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 {
     public class ColorModifier
     {
-        public CommonObjectData commonObjectData;
+        public CommonObjectData commonObjectData = new CommonObjectData();
 
         public Vector4 initialColor;
         public Vector4 endColor;
-        public CMPRColorGradient gradient;
-        public CMayaSpline timing;
-        public SMPRColorModifierOptions options;
+        public CMPRColorGradient gradient = new CMPRColorGradient();
+        public CMayaSpline timing = new CMayaSpline();
+        public SMPRColorModifierOptions options = new SMPRColorModifierOptions();
         public EMPRColorModifierMode mode;
         public float initialIntensity;
         public float endIntensity;
@@ -90,26 +90,6 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 
     public class SMPRColorModifierOptions()
     {
-        public List<SMPRColorModifierOption> options = new List<SMPRColorModifierOption>();
-
-        public static SMPRColorModifierOptions Read(FileReader reader)
-        {
-            SMPRColorModifierOptions prop = new SMPRColorModifierOptions();
-            ushort count = reader.ReadUInt16();
-            for (int i = 0; i < count; i++)
-            {
-                prop.options.Add(SMPRColorModifierOption.Read(reader));
-            }
-
-            return prop;
-        }
-    }
-
-    public class SMPRColorModifierOption
-    {
-        public uint propertyId;
-        public ushort propertySize;
-
         public float initialTime;
         public float randomTimeRange;
         public byte initiallyPlaying;
@@ -122,55 +102,79 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         public byte useGradient;
         public byte useThinkDelta;
 
-        public static SMPRColorModifierOption Read(FileReader reader)
+        public static SMPRColorModifierOptions Read(FileReader reader)
         {
-            SMPRColorModifierOption prop = new SMPRColorModifierOption();
-            prop.propertyId = reader.ReadUInt32();
-            prop.propertySize = reader.ReadUInt16();
-            switch (prop.propertyId)
+            SMPRColorModifierOptions prop = new SMPRColorModifierOptions();
+            ushort count = reader.ReadUInt16();
+            for (int i = 0; i < count; i++)
             {
-                case 0x28376d3f:
-                    prop.initialTime = reader.ReadSingle();
-                    break;
-                case 0xb1437b20:
-                    prop.randomTimeRange = reader.ReadSingle();
-                    break;
-                case 0xe4c9cd3e:
-                    prop.initiallyPlaying = reader.ReadByte();
-                    break;
-                case 0x47a9b8f4:
-                    prop.applyFromStart = reader.ReadByte();
-                    break;
-                case 0xcb60e6ae:
-                    prop.applyGradientFromStart = reader.ReadByte();
-                    break;
-                case 0xe000181c:
-                    prop.applyEndColor = reader.ReadByte();
-                    break;
-                case 0xf9159caf:
-                    prop.applyGradientEnd = reader.ReadByte();
-                    break;
-                case 0xff17f0bb:
-                    prop.applyInitialTime = reader.ReadByte();
-                    break;
-                case 0xcb494abc:
-                    prop.looping = reader.ReadByte();
-                    break;
-                case 0x68b9c38e:
-                    prop.useGradient = reader.ReadByte();
-                    break;
-                case 0x83737173:
-                    prop.useThinkDelta = reader.ReadByte();
-                    break;
-                default:
-                    if (prop.propertySize > 0)
-                    {
-                        reader.ReadBytes(prop.propertySize);
-                    }
-                    break;
+                ReadColorModifierOptions(reader, prop);
             }
 
             return prop;
+        }
+
+        public static void ReadColorModifierOptions(FileReader reader, SMPRColorModifierOptions prop)
+        {
+            var propertyId = reader.ReadUInt32();
+            var propertySize = reader.ReadUInt16();
+
+            byte[] propertyData = propertySize > 0
+                ? reader.ReadBytes(propertySize)
+                : Array.Empty<byte>();
+
+            using MemoryStream ms = new MemoryStream(propertyData);
+            using FileReader propertyReader = new FileReader(ms);
+
+            switch (propertyId)
+            {
+                case 0x28376d3f:
+                    prop.initialTime = propertyReader.ReadSingle();
+                    break;
+
+                case 0xb1437b20:
+                    prop.randomTimeRange = propertyReader.ReadSingle();
+                    break;
+
+                case 0xe4c9cd3e:
+                    prop.initiallyPlaying = propertyReader.ReadByte();
+                    break;
+
+                case 0x47a9b8f4:
+                    prop.applyFromStart = propertyReader.ReadByte();
+                    break;
+
+                case 0xcb60e6ae:
+                    prop.applyGradientFromStart = propertyReader.ReadByte();
+                    break;
+
+                case 0xe000181c:
+                    prop.applyEndColor = propertyReader.ReadByte();
+                    break;
+
+                case 0xf9159caf:
+                    prop.applyGradientEnd = propertyReader.ReadByte();
+                    break;
+
+                case 0xff17f0bb:
+                    prop.applyInitialTime = propertyReader.ReadByte();
+                    break;
+
+                case 0xcb494abc:
+                    prop.looping = propertyReader.ReadByte();
+                    break;
+
+                case 0x68b9c38e:
+                    prop.useGradient = propertyReader.ReadByte();
+                    break;
+
+                case 0x83737173:
+                    prop.useThinkDelta = propertyReader.ReadByte();
+                    break;
+
+                default:
+                    break;
+            }
         }
     }
 

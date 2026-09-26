@@ -53,7 +53,7 @@ public class WaterRenderVolume
         ushort count = reader.ReadUInt16();
         for (int i = 0; i < count; i++)
         {
-            BuildWaterRenderVolumeProperties(reader, script);
+            ReadWaterRenderVolumeProperties(reader, script);
         }
     }
 

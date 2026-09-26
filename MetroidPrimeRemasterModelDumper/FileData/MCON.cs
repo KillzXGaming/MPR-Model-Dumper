@@ -123,8 +123,8 @@ namespace DKCTF
             public List<SAtlasLookup> visualAtlas;
             public uint waterAtlasCount;
             public List<SAtlasLookup> waterAtlas;
-            public uint renderOctreeFlags;
-            public List<CRenderOctree> renderOctrees;
+            //public uint renderOctreeFlags;
+            //public List<CRenderOctree> renderOctrees;
 
             public static ModConVisualData Read(FileReader br)
             {
@@ -228,12 +228,15 @@ namespace DKCTF
                     data.waterAtlas.Add(br.ReadStruct<SAtlasLookup>());
                 }
 
+                /*
                 data.renderOctreeFlags = br.ReadUInt32();
                 data.renderOctrees = new List<CRenderOctree>();
                 for (int i = 0; i < data.renderOctreeFlags; i++)
                 {
                     data.renderOctrees.Add(CRenderOctree.Read(br));
                 }
+                */
+
                 return data;
             }
         }

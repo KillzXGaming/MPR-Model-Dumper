@@ -134,7 +134,6 @@ namespace EvilWithin2Tool
 
                 IOManager.ExportScene(ioscene, newPath + ".gltf", new ExportSettings()
                 {
-                    Optimize = false
                 });
             }
 
