@@ -264,10 +264,19 @@ namespace DKCTF
 
         public bool IsZero()
         {
-            return Guid.Part1 == 0 && 
-                   Guid.Part2 == 0 && 
-                   Guid.Part3 == 0 &&
-                   Guid.Part4[0] == 0;
+            if (Guid.Part1 != 0 ||
+                Guid.Part2 != 0 ||
+                Guid.Part3 != 0)
+            {
+                return false;
+            }
+
+            if (Guid.Part4 == null)
+            {
+                return true;
+            }
+
+            return Guid.Part4.All(b => b == 0);
         }
     }
 
