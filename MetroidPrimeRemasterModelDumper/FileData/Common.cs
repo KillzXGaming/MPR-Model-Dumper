@@ -293,13 +293,6 @@ namespace DKCTF
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public class Vector4f
-    {
-        public float X;
-        public float Y;
-        public float Z;
-        public float W;
-    }
 
     public struct CVector4f
     {
@@ -493,8 +486,6 @@ namespace DKCTF
             return bitField;
         }
     }
-
-
 
     public struct SAtlasLookup
     {

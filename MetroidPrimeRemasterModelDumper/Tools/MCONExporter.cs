@@ -9,12 +9,11 @@ using MetroidPrimeRemasterModelDumper;
 using MetroidPrimeRemasterModelDumper.Tools;
 using System.Numerics;
 using System.Text;
-
 #nullable disable
 
 namespace EvilWithin2Tool
 {
-    public class CMDLExporterNew
+    public class MCONExporter
     {
         public static void ExportRoom(ConstructedRoom room, string path, bool saveLODs = false)
         {
@@ -45,6 +44,12 @@ namespace EvilWithin2Tool
                 List<CMDL> cmdls = new List<CMDL>();
                 IOModel iomodel = new IOModel();
 
+                string folder = Path.Combine(path, mcons[m].fileName.ToString());
+                if (!Directory.Exists(folder))
+                {
+                    Directory.CreateDirectory(folder);
+                }
+
                 // Build each unique CMDL file
                 for (int i = 0; i < mcons[m].data.visualData.modelIdCount; i++)
                 {
@@ -55,11 +60,8 @@ namespace EvilWithin2Tool
 
                     string modelId = mcons[m].data.visualData.modelID[i].ToString();
 
-                    if (writtenMaterialFiles.Add(modelId))
-                    {
-                        string materialPath = Path.Combine(path, modelId);
-                        WriteMaterialTextFile(cmdl, materialPath);
-                    }
+                    string materialPath = Path.Combine(folder, "CMDL_" + modelId);
+                    WriteMaterialTextFile(cmdl, materialPath);
                 }
 
                 // Each entry in the model-index array is one room-model instance. The corresponding entry in xf is that instance's transform.
@@ -121,12 +123,6 @@ namespace EvilWithin2Tool
 
                 Console.WriteLine(mcons[m].fileName.ToString());
                 Console.WriteLine(mcons[m].data.visualData.transformCount);
-
-                string folder = Path.Combine(path, mcons[m].fileName.ToString());
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
 
                 string newPath = Path.Combine(folder, mcons[m].fileName.ToString());
 
@@ -249,14 +245,52 @@ namespace EvilWithin2Tool
 
                 iopoly.MaterialName = mat.Name;
 
-
-                // Bake the MCON instance transform directly into the mesh vertices.
-                // This avoids depending on whether the IONET IOModel node transform
-                // is preserved by its glTF exporter.
-                iomesh.TransformVertices(matrix);
-
                 for (int i = 0; i < mesh.Indices.Length; i++)
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
+
+                TransformMCONMesh(iomesh, matrix);
+            }
+        }
+
+        private static void TransformMCONMesh(IOMesh mesh, Matrix4x4 transform)
+        {
+            // A normal must be transformed by the inverse-transpose of the linear portion of the model transform.
+            if (!Matrix4x4.Invert(transform, out Matrix4x4 inverse))
+                throw new InvalidOperationException(
+                    "MCON transform is singular and cannot be used to transform normals.");
+
+            Matrix4x4 normalMatrix = Matrix4x4.Transpose(inverse);
+
+            // Only the upper-left 3x3 matters for handedness.
+            float determinant =
+                transform.M11 * (transform.M22 * transform.M33 - transform.M23 * transform.M32)
+                - transform.M12 * (transform.M21 * transform.M33 - transform.M23 * transform.M31)
+                + transform.M13 * (transform.M21 * transform.M32 - transform.M22 * transform.M31);
+
+            bool mirrored = determinant < 0.0f;
+
+            foreach (var vertex in mesh.Vertices)
+            {
+                vertex.Position = Vector3.Transform(vertex.Position, transform);
+                vertex.Normal = Vector3.Normalize(
+                    Vector3.TransformNormal(vertex.Normal, normalMatrix));
+                vertex.Tangent = Vector3.Normalize(
+                    Vector3.TransformNormal(vertex.Tangent, transform));
+                vertex.Binormal = Vector3.Normalize(
+                    Vector3.TransformNormal(vertex.Binormal, transform));
+            }
+
+            if (mirrored)
+            {
+                foreach (var polygon in mesh.Polygons)
+                {
+                    for (int i = 0; i + 2 < polygon.Indicies.Count; i += 3)
+                    {
+                        int temp = polygon.Indicies[i + 1];
+                        polygon.Indicies[i + 1] = polygon.Indicies[i + 2];
+                        polygon.Indicies[i + 2] = temp;
+                    }
+                }
             }
         }
 

@@ -663,18 +663,7 @@ namespace DKCTF
 
             public Vector4 Color1 = Vector4.One;
 
-            
-            
             public bool hasTexCoord1 = false;
-            
-
-            public Vector2 BakedLightingCoord;
-            public Vector4 BakedLightingTangent;
-            public Vector4 BakedLightingLookup;
-
-            public bool hasBakedLightingCoord;
-            public bool hasBakedLightingTangent;
-            public bool hasBakedLightingLookup;
 
             public Vector4 Tangent;
         }

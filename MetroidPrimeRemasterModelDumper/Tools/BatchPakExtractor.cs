@@ -122,7 +122,6 @@ namespace MetroidPrimeRemasterModelDumper
                             savedMode = "LTPB";
                             break;
                         case "MCON":
-                            makeFolders = true;
                             if (fileInfo.AssetEntry.Type == "MCON")
                                 ProcessModConTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "MCON";
@@ -291,7 +290,7 @@ namespace MetroidPrimeRemasterModelDumper
 
             RoomInfoPrinter.PrintParsedObjects(folder, newRoom);
             RoomInfoPrinter.PrintStaticLights(folder, newRoom);
-            CMDLExporterNew.ExportRoom(newRoom, folder, false);
+            MCONExporter.ExportRoom(newRoom, folder, false);
 
             Console.WriteLine("Successfully consumed a ROOM: " + Entry.AssetEntry.FileID.ToString());
         }
