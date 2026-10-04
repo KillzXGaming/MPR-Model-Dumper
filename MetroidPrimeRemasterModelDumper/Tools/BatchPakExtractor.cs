@@ -52,11 +52,11 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine("    TXTR1 = Dump TXTR files");
                 Console.WriteLine("    TXTR2 = Dump TXTR files with folders for array textures");
                 Console.WriteLine("    LTPB = Light Probe Texture Bundle");
-                Console.WriteLine("    MCON = MCON test");
-                Console.WriteLine("    ROOM = Room test");
+                // Console.WriteLine("    MCON = MCON test");
+                Console.WriteLine("    ROOM = Dump ROOM and several related files");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: The way secondary and tertiary UVs are stored is not");
-                Console.WriteLine("well understood. Some UV maps may be missing or inaccurate.");
+                Console.WriteLine("fully understood. Some UV maps may be missing or inaccurate.");
                 Console.WriteLine("");
 
                 mode = Console.ReadLine();
@@ -121,11 +121,13 @@ namespace MetroidPrimeRemasterModelDumper
                                 ExtractLTPB(fileInfo.FileData, fileInfo, pak);
                             savedMode = "LTPB";
                             break;
+                            /*
                         case "MCON":
                             if (fileInfo.AssetEntry.Type == "MCON")
                                 ProcessModConTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "MCON";
                             break;
+                            */
                         case "ROOM":
                             if (fileInfo.AssetEntry.Type == "ROOM")
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
