@@ -1,11 +1,15 @@
 ﻿using AvaloniaToolbox.Core.IO;
+using EvilWithin2Tool;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using static AvaloniaToolbox.Core.ConsoleLogger;
+#nullable disable
 
 namespace DKCTF
 {
@@ -14,10 +18,14 @@ namespace DKCTF
     /// </summary>
     public class CMDL : FileForm
     {
+        public SModelHeader Header;
+
         /// <summary>
         /// The meshes of the model used to display the model.
         /// </summary>
         public List<CMesh> Meshes = new List<CMesh>();
+
+        public List<ModelLOD> ParsedLODs = new List<ModelLOD>();
 
         /// <summary>
         /// The materials of the model for rendering the mesh.
@@ -27,12 +35,15 @@ namespace DKCTF
         /// <summary>
         /// The vertex buffer list to read the buffer attributes.
         /// </summary>
-        List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
+        public List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
 
         /// <summary>
         /// The index buffer list to read the index buffer data.
         /// </summary>
         List<CGraphicsIndexBufferToken> IndexBuffer = new List<CGraphicsIndexBufferToken>();
+
+        public List<byte[]> VertexBytes = new List<byte[]>();
+        public List<byte[]> IndexBytes = new List<byte[]>();
 
         /// <summary>
         /// Determines which variant of the file to parse. Switch reads strings and materials differently.
@@ -43,10 +54,19 @@ namespace DKCTF
 
         public bool IsR11 = true;
 
+        public byte[] unk1;
+        public byte[] unk2;
+        public uint shortCount;
+        public ushort[] shorts;
+        public byte lodCount;
+        public LODinfo[] lods;
+        public uint hasLODRule;
+        public LodRule[] LodRules;
+
         /// <summary>
         /// The meta data header for parsing gpu buffers and decompressing.
         /// </summary>
-        SMetaData Meta;
+        public SMetaData Meta;
 
         public CMDL() { }
 
@@ -85,7 +105,7 @@ namespace DKCTF
                     reader.ReadUInt32(); //unk
                     break;
                 case "HEAD":
-                    reader.ReadStruct<SModelHeader>();
+                    Header = reader.ReadStruct<SModelHeader>();
                     break;
                 case "MTRL":
                     if (IsSwitch)
@@ -115,8 +135,11 @@ namespace DKCTF
 
                         //Decompress
                         var data = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);
-                      //  if (buffer.DecompressedSize != data.Length)
-                      //      throw new Exception();
+                        //  if (buffer.DecompressedSize != data.Length)
+                        //      throw new Exception();
+
+
+                        IndexBytes.Add(data);
 
                         //All indices
                         var indices = BufferHelper.LoadIndexBuffer(data, this.IndexBuffer[i].IndexType, IsSwitch);
@@ -147,25 +170,74 @@ namespace DKCTF
                         if (buffer.DecompressedSize != data.Length)
                             throw new Exception();
 
+                        VertexBytes.Add(data);
+
                         vertexData.Add(data);
 
                         startPos += buffer.CompressedSize;
                     }
 
+                    int bufferID = 0;
 
                     for (int j = 0; j < VertexBuffers.Count; j++)
                     {
                         var vertexInfo = VertexBuffers[j];
-                        var bufferID = j * 2;
-                        if (!this.IsMPR && !IsR11)
-                            bufferID = j;
 
-                        var vertices = BufferHelper.LoadVertexBuffer(vertexData, bufferID, vertexInfo, IsSwitch, this.IsMPR);
+                        int bufferCount = vertexInfo.NumBuffers;
 
-                        //Read
+                        if (bufferCount <= 0)
+                            throw new Exception(
+                                $"VBUF group {j} contains an invalid buffer count: {bufferCount}");
+
+                        if (bufferID + bufferCount > vertexData.Count)
+                        {
+                            throw new Exception(
+                                $"VBUF group {j} references physical buffers " +
+                                $"{bufferID}..{bufferID + bufferCount - 1}, " +
+                                $"but only {vertexData.Count} vertex buffers exist.");
+                        }
+
+                        foreach (var component in vertexInfo.Components)
+                        {
+                            if (component.BufferID >= vertexInfo.NumBuffers)
+                            {
+                                throw new Exception(
+                                    $"VBUF group {j} component {component.Type} " +
+                                    $"references buffer {component.BufferID}, " +
+                                    $"but the group only has {vertexInfo.NumBuffers} buffers.");
+                            }
+                        }
+
+                        Console.WriteLine(
+                            $"VBUF Group {j}: " +
+                            $"vertices={vertexInfo.VertexCount}, " +
+                            $"physicalBuffers={vertexInfo.NumBuffers}, " +
+                            $"baseBuffer={bufferID}");
+
+                        bool hasBakedLightingCoord =
+                            vertexInfo.Components.Any(
+                                c => c.Type == EVertexComponent.in_bakedLightingCoord);
+
+                        Console.WriteLine(
+                            $"  BakedLightingCoord component: {hasBakedLightingCoord}");
+
+                        var vertices = BufferHelper.LoadVertexBuffer(
+                            vertexData,
+                            bufferID,
+                            vertexInfo,
+                            IsSwitch,
+                            this.IsMPR);
+
                         foreach (var mesh in Meshes)
+                        {
                             if (mesh.Header.VertexBufferIndex == j)
                                 mesh.SetupVertices(vertices.ToList());
+                        }
+
+                        // IMPORTANT:
+                        // The next VBUF group begins after this group's actual
+                        // physical buffer count, not after a fixed number of buffers.
+                        bufferID += bufferCount;
                     }
                     break;
             }
@@ -190,20 +262,27 @@ namespace DKCTF
                     var dtype = reader.ReadStruct<Magic>();
                     uint dformat = reader.ReadUInt32();
 
-                    Console.WriteLine($"dtype {dtype} {dformat}");
+                    //Console.WriteLine($"dtype {dtype} {dformat}");
 
                     switch (dformat)
                     {
                         case 0: //Texture
-                            material.Textures.Add(dtype, reader.ReadStruct<CMaterialTextureTokenData>());
+                            CTexture texture = new CTexture();
+                            CMaterialTextureTokenData tokenData = reader.ReadStruct<CMaterialTextureTokenData>();
+                            texture.textureTokenData = tokenData;
+                            texture.type = dtype;
+                            material.Textures.Add(texture);
                             break;
                         case 1: //Color
+                            //material.Colors.Add(reader.ReadStruct<Color4f>());
                             material.Colors.Add(dtype, reader.ReadStruct<Color4f>());
                             break;
                         case 2: //Scaler
+                            //material.Scalars.Add(reader.ReadSingle());
                             material.Scalars.Add(dtype, reader.ReadSingle());
                             break;
                         case 3: //int
+                            //material.Int.Add(reader.ReadInt32());
                             material.Int.Add(dtype, reader.ReadInt32());
                             break;
                         case 4: //CLayeredTextureData
@@ -222,9 +301,11 @@ namespace DKCTF
                                 var texture3 = reader.ReadStruct<CObjectId>();
                                 if (!texture3.IsZero())
                                     reader.ReadStruct<STextureUsageInfo>();
+                                
                             }
                             break;
                         case 5: //int4
+                            //material.Int4.Add(reader.ReadInt32s(4));
                             material.Int4.Add(dtype, reader.ReadInt32s(4));
                             break;
                         default:
@@ -282,23 +363,31 @@ namespace DKCTF
                     var dtype = reader.ReadStruct<Magic>();
                     var dformat = reader.ReadStruct<Magic>();
 
-                    Console.WriteLine($"dtype {dtype} {dformat}");
+                    //Console.WriteLine($"dtype {dtype} {dformat}");
 
                     switch (dformat)
                     {
                         case "TXTR": //Texture
-                            material.Textures.Add(dtype, reader.ReadStruct<CMaterialTextureTokenData>());
+                            CTexture texture = new CTexture();
+                            CMaterialTextureTokenData tokenData = reader.ReadStruct<CMaterialTextureTokenData>();
+                            texture.textureTokenData = tokenData;
+                            texture.type = dtype;
+                            material.Textures.Add(texture);
                             break;
                         case "COLR": //Color
+                            //material.Colors.Add(reader.ReadStruct<Color4f>());
                             material.Colors.Add(dtype, reader.ReadStruct<Color4f>());
                             break;
                         case "SCLR": //Scaler
+                            //material.Scalars.Add(reader.ReadSingle());
                             material.Scalars.Add(dtype, reader.ReadSingle());
                             break;
                         case "INT ": //int
+                            //material.Int.Add(reader.ReadInt32());
                             material.Int.Add(dtype, reader.ReadInt32());
                             break;
                         case "INT4": //int4
+                            //material.Int4.Add(reader.ReadInt32s(4));
                             material.Int4.Add(dtype, reader.ReadInt32s(4));
                             break;
                         case "CPLX": //CLayeredTextureData
@@ -308,18 +397,49 @@ namespace DKCTF
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
                                 reader.ReadByte(); //Flags
+
                                 var texture1 = reader.ReadStruct<CObjectId>();
                                 if (!texture1.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
+                                {
+                                    CTexture tex1 = new CTexture();
+                                    var info1 = reader.ReadStruct<STextureUsageInfo>();
+                                    CMaterialTextureTokenData tokenData1 = new CMaterialTextureTokenData();
+                                    tokenData1.FileID = texture1;
+                                    tokenData1.UsageInfo = info1;
+                                    tex1.textureTokenData = tokenData1;
+                                    tex1.type = dtype;
+                                    material.Textures.Add(tex1);
+                                }
+
                                 var texture2 = reader.ReadStruct<CObjectId>();
                                 if (!texture2.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
+                                {
+                                    CTexture tex2 = new CTexture();
+                                    var info2 = reader.ReadStruct<STextureUsageInfo>();
+                                    CMaterialTextureTokenData tokenData2 = new CMaterialTextureTokenData();
+                                    tokenData2.FileID = texture2;
+                                    tokenData2.UsageInfo = info2;
+                                    tex2.textureTokenData = tokenData2;
+                                    tex2.type = dtype;
+                                    material.Textures.Add(tex2);
+                                }
+
                                 var texture3 = reader.ReadStruct<CObjectId>();
                                 if (!texture3.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
+                                {
+                                    CTexture tex3 = new CTexture();
+                                    var info3 = reader.ReadStruct<STextureUsageInfo>();
+                                    CMaterialTextureTokenData tokenData3 = new CMaterialTextureTokenData();
+                                    tokenData3.FileID = texture3;
+                                    tokenData3.UsageInfo = info3;
+                                    tex3.textureTokenData = tokenData3;
+                                    tex3.type = dtype;
+                                    material.Textures.Add(tex3);
+                                }
                             }
                             break;
                         case "MA4": //Matrix4x4
+                            //material.Matrices.Add(reader.ReadSingles(16));
                             material.Matrices.Add(dtype, reader.ReadSingles(16));
                             break;
                         default:
@@ -366,25 +486,148 @@ namespace DKCTF
                     Header = mesh,
                 });
             }
+
+            this.unk1 = new byte[(numMeshes + 3) / 4];
+            this.unk2 = new byte[(numMeshes + 7) / 8];
+            for (int i = 0; i < unk1.Length; i++)
+            {
+                this.unk1[i] = reader.ReadByte();
+            }
+            for (int i = 0; i < unk2.Length; i++)
+            {
+                this.unk2[i] = reader.ReadByte();
+            }
+
+            this.shortCount = reader.ReadUInt32();
+            this.shorts = new ushort[this.shortCount];
+
+            for (int i = 0; i < shortCount; i++)
+            {
+                this.shorts[i] = reader.ReadUInt16();
+            }
+
+            this.lodCount = reader.ReadByte();
+            this.lods = new LODinfo[lodCount];
+
+            for (int i = 0; i < lodCount; i++)
+            {
+                //Console.WriteLine("LOD outer: " + i);
+                LODinfo info = new LODinfo();
+
+                info.ReadInner(reader);
+
+                this.lods[i] = info;
+            }
+
+            this.hasLODRule = reader.ReadUInt32();
+
+            // Conditionally read the LOD rules if the flag is set to 1
+            if (this.hasLODRule == 1)
+            {
+                this.LodRules = new LodRule[this.lodCount];
+                for (int i = 0; i < this.lodCount; i++)
+                {
+                    this.LodRules[i] = new LodRule
+                    {
+                        Value = reader.ReadSingle() // SRenderModelLODRule is just a standard f32
+                    };
+                }
+            }
+            else
+            {
+                // Initialize empty to avoid null reference exceptions down the line
+                this.LodRules = new LodRule[0];
+            }
+
+            // Map meshes to their respective LOD buckets
+            for (int lodIndex = 0; lodIndex < this.lodCount; lodIndex++)
+            {
+                LODinfo currentLOD = this.lods[lodIndex];
+                ModelLOD parsedLOD = new ModelLOD();
+
+                if (this.hasLODRule == 1 && lodIndex < this.LodRules.Length)
+                {
+                    parsedLOD.Distance = this.LodRules[lodIndex].Value;
+                }
+
+                foreach (LODInner inner in currentLOD.inner)
+                {
+                    for (uint i = 0; i < inner.count; i++)
+                    {
+                        int meshIndex = this.shorts[inner.offset + i];
+
+                        // Add the index to our LOD bucket if it isn't there already
+                        if (!parsedLOD.MeshIndices.Contains(meshIndex))
+                        {
+                            parsedLOD.MeshIndices.Add(meshIndex);
+                        }
+
+                        // Keep your original tagging, it's still useful!
+                        if (meshIndex < this.Meshes.Count)
+                        {
+                            this.Meshes[meshIndex].LODs.Add(lodIndex);
+                        }
+                    }
+                }
+
+                this.ParsedLODs.Add(parsedLOD);
+            }
+
             Console.WriteLine();
+        }
+
+        /// <summary>
+        /// Extracts only the meshes associated with LOD 0.
+        /// </summary>
+        public List<CMesh> GetHighestLODMeshes()
+        {
+            if (this.ParsedLODs.Count == 0) return new List<CMesh>();
+
+            List<CMesh> highLodMeshes = new List<CMesh>();
+
+            // ParsedLODs[0] contains the indices for the highest level of detail
+            foreach (int index in this.ParsedLODs[0].MeshIndices)
+            {
+                if (index < this.Meshes.Count)
+                {
+                    highLodMeshes.Add(this.Meshes[index]);
+                }
+            }
+
+            return highLodMeshes;
         }
 
         private void ReadVertexBuffer(FileReader reader)
         {
             uint numBuffers = reader.ReadUInt32();
+
             for (int i = 0; i < numBuffers; i++)
             {
                 VertexBuffer vertexBuffer = new VertexBuffer();
+
                 vertexBuffer.VertexCount = reader.ReadUInt32();
 
                 uint numAttributes = reader.ReadUInt32();
 
                 for (int j = 0; j < numAttributes; j++)
-                    vertexBuffer.Components.Add(reader.ReadStruct<SVertexDataComponent>());
+                    vertexBuffer.Components.Add(
+                        reader.ReadStruct<SVertexDataComponent>());
+
+                if (this.IsMPR || IsR11)
+                {
+                    vertexBuffer.NumBuffers = reader.ReadByte();
+
+                    if (vertexBuffer.NumBuffers == 0)
+                        throw new Exception(
+                            $"VBUF group {i} contains zero physical buffers.");
+                }
+                else
+                {
+                    // Older formats used one physical buffer per VBUF group.
+                    vertexBuffer.NumBuffers = 1;
+                }
 
                 VertexBuffers.Add(vertexBuffer);
-                if (this.IsMPR || IsR11)
-                    reader.ReadByte();
             }
         }
 
@@ -400,6 +643,10 @@ namespace DKCTF
             public List<SVertexDataComponent> Components = new List<SVertexDataComponent>();
 
             public uint VertexCount;
+
+            // Number of physical GPU vertex buffers belonging to this VBUF group.
+            // MPR stores this as the byte immediately following the component list.
+            public byte NumBuffers = 1;
         }
 
         public class CVertex
@@ -409,11 +656,14 @@ namespace DKCTF
             public Vector2 TexCoord0;
             public Vector2 TexCoord1;
             public Vector2 TexCoord2;
+            public Vector2 TexCoord3;
 
             public Vector4 BoneWeights = new Vector4(1, 0, 0, 0);
             public Vector4 BoneIndices = new Vector4(0);
 
-            public Vector4 Color = Vector4.One;
+            public Vector4 Color1 = Vector4.One;
+
+            public bool hasTexCoord1 = false;
 
             public Vector4 Tangent;
         }
@@ -427,7 +677,16 @@ namespace DKCTF
 
             public uint Flags { get; set; }
 
-            public Dictionary<string, CMaterialTextureTokenData> Textures = new Dictionary<string, CMaterialTextureTokenData>();
+            public List<CTexture> Textures = new List<CTexture>();
+
+            //public List<float> Scalars = new List<float>();
+            //public List<int> Int = new List<int>();
+            //public List<int[]> Int4 = new List<int[]>();
+            //public List<float[]> Matrices = new List<float[]>();
+
+            //public List<Color4f> Colors = new List<Color4f>();
+
+            //public Dictionary<string, CMaterialTextureTokenData> Textures = new Dictionary<string, CMaterialTextureTokenData>();
 
             public Dictionary<string, float> Scalars = new Dictionary<string, float>();
             public Dictionary<string, int> Int = new Dictionary<string, int>();
@@ -440,29 +699,68 @@ namespace DKCTF
         public class CMesh
         {
             public CRenderMesh Header;
-
             public List<CVertex> Vertices = new List<CVertex>();
-
             public uint[] Indices = new uint[0];
+
+            public HashSet<int> LODs = new HashSet<int>();
+
+            public bool hasTexCoord1 = false;
+            //public bool hasTexCoord2 = false;
+            //public bool hasTexCoord3 = false;
 
             public void SetupVertices(List<CVertex> vertices)
             {
-                //Here we optmize the vertices to only use the vertices used by the mesh rather than use one giant list
+                if (Indices.Length == 0) return;
+
+                // 1. Find the absolute minimum and maximum indices used by this mesh
+                uint minIndex = uint.MaxValue;
+                uint maxIndex = uint.MinValue;
+
+                for (int i = 0; i < Indices.Length; i++)
+                {
+                    if (Indices[i] < minIndex) minIndex = Indices[i];
+                    if (Indices[i] > maxIndex) maxIndex = Indices[i];
+                }
+
+                // 2. Slice out only the continuous range of vertices this mesh needs
                 List<CVertex> vertexList = new List<CVertex>();
+                int vertexCount = (int)(maxIndex - minIndex + 1);
+
+                for (int i = 0; i < vertexCount; i++)
+                {
+                    vertexList.Add(vertices[(int)(minIndex + i)]);
+                }
+
+                // 3. Remap the index buffer by subtracting the minimum index
+                // This preserves vertex sharing perfectly.
                 List<uint> remappedIndices = new List<uint>();
                 for (int i = 0; i < Indices.Length; i++)
                 {
-                    remappedIndices.Add((uint)vertexList.Count);
-                    vertexList.Add(vertices[(int)Indices[i]]);
+                    remappedIndices.Add(Indices[i] - minIndex);
                 }
+
+                // Assign texture coordinate flags safely
+                if (vertexList.Count > 0)
+                {
+                    hasTexCoord1 = vertexList[0].hasTexCoord1;
+                    //hasTexCoord2 = vertexList[0].hasTexCoord2;
+                    //hasTexCoord3 = vertexList[0].hasTexCoord3;
+                }
+
                 this.Vertices = vertexList;
                 this.Indices = remappedIndices.ToArray();
             }
         }
 
+        public class ModelLOD
+        {
+            public List<int> MeshIndices = new List<int>();
+            public float Distance;
+        }
+
         public class SSkinnedModelHeader : CChunkDescriptor
         {
-            public uint Unknown;
+            public uint unknown;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -475,6 +773,12 @@ namespace DKCTF
             public uint IndexCount;
             public ushort field_C; 
             public ushort field_E; //0x4000
+        }
+
+        public class CTexture
+        {
+            public CMaterialTextureTokenData textureTokenData;
+            public string type;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -534,40 +838,93 @@ namespace DKCTF
 
         public enum VertexFormat
         {
-            Byte = 0,
-            Format_16_16_HalfSingle = 20,
+            R8_UNorm = 0,
+            R8_UInt = 1,
+            R8_SNorm = 2,
+            R8_SInt = 3,
+
+            R16_UNorm = 4,
+            R16_UInt = 5,
+            R16_SNorm = 6,
+            R16_SInt = 7,
+            R16_Float = 8,
+
+            RG8_UNorm = 9,
+            RG8_UInt = 10,
+            RG8_SNorm = 11,
+            RG8_SInt = 12,
+
+            R32_UInt = 13,
+            R32_SInt = 14,
+            R32_Float = 15,
+
+            RG16_UNorm = 16,
+            RG16_UInt = 17,
+            RG16_SNorm = 18,
+            RG16_SInt = 19,
+            RG16_Float = 20,
+
+            Format_8_8_8_8_UNorm = 21,
             Format_8_8_8_8_Uint = 22,
+            RGBA8_SNorm = 23,
+            RGBA8_SInt = 24,
+
+            RGB10A2_UNorm = 25,
+            RGB10A2_UInt = 26,
+
+            RG32_UInt = 27,
+            RG32_SInt = 28,
+            RG32_Float = 29,
+
+            RGBA16_UNorm = 30,
+            RGBA16_UInt = 31,
+            RGBA16_SNorm = 32,
+            RGBA16_SInt = 33,
             Format_16_16_16_HalfSingle = 34,
+
+            RGB32_UInt = 35,
+            RGB32_SInt = 36,
             Format_32_32_32_Single = 37,
+
+            RGBA32_UInt = 38,
+            RGBA32_SInt = 39,
             Format_32_32_32_32_Single = 40,
+
+            // Backwards-compatible aliases used by the existing code.
+            Format_16_16_HalfSingle = RG16_Float,
         }
 
         public enum EVertexComponent
         {
-            in_position,
-            in_normal,
-            in_tangent0,
-            in_tangent1,
-            in_texCoord0,
-            in_texCoord1,
-            in_texCoord2,
-            in_texCoord3,
+            in_position = 0,
+            in_normal = 1,
+            in_tangent0 = 2,
+            in_tangent1 = 3,
+            in_tangent2 = 4,
+            in_texCoord0 = 5,
+            in_texCoord1 = 6,
+            in_texCoord2 = 7,
+            in_texCoord3 = 8,
             in_color = 9,
             in_boneIndices = 10,
             in_boneWeights = 11,
-            in_bakedLightingCoord,
-            in_bakedLightingTangent,
-            in_vertInstanceColor,
-            //3x4 matrices
-            in_vertTransform0,
-            in_vertTransform1,
-            in_vertTransform2,
-            //3x4 matrices for instancing
-            in_vertTransformIT0,
-            in_vertTransformIT1,
-            in_vertTransformIT2,
-            in_lastPosition,
-            in_currentPosition,
+            in_bakedLightingCoord = 12,
+            in_bakedLightingTangent = 13,
+            in_vertInstanceParams = 14,
+            in_vertInstanceColor = 15,
+            in_vertTransform0 = 16,
+            in_vertTransform1 = 17,
+            in_vertTransform2 = 18,
+            in_currentPosition = 19,
+            in_VertInstanceOpacityParams = 20,
+            in_VertInstanceColorIndexingParams = 21,
+            in_VertInstanceOpacityIndexingParams = 22,
+            in_VertInstancePaintParams = 23,
+            in_BakedLightingLookup = 24,
+            in_MaterialChoice0 = 25,
+            in_MaterialChoice1 = 26,
+            in_MaterialChoice2 = 27,
+            in_MaterialChoice3 = 28,
         }
 
         //Meta data from PAK archive
@@ -596,5 +953,36 @@ namespace DKCTF
             public uint CompressedSize;
             public uint DecompressedSize;
         }
+
+        // LOD stuff
+        public class LODinfo
+        {
+            public LODInner[] inner = new LODInner[5];
+
+            public void ReadInner(FileReader reader)
+            {
+                for (int i = 0; i < inner.Length; i++)
+                {
+                    LODInner tempinner = new LODInner();
+
+                    tempinner.offset = reader.ReadUInt32();
+                    tempinner.count = reader.ReadUInt32();
+
+                    inner[i] = tempinner;
+                }
+            }
+        }
+
+        public class LODInner
+        {
+            public uint offset;
+            public uint count;
+        }
+
+        public class LodRule
+        {
+            public float Value;
+        }
+
     }
 }

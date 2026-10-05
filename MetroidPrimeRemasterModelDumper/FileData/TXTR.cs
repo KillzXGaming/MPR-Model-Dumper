@@ -1,4 +1,5 @@
 ﻿using AvaloniaToolbox.Core.IO;
+using ImageLibrary;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,18 +15,19 @@ namespace DKCTF
     /// </summary>
     internal class TXTR : FileForm
     {
-        public STextureHeader TextureHeader;
 
-        public SMetaData Meta;
+        // property is used to track embedded start positions
+        public long StreamBaseOffset { get; set; } = 0;
+
+        public STextureHeader TextureHeader;
+        public STextureMetaData Meta;
 
         public byte[] BufferData;
-
         public uint[] MipSizes = new uint[0];
 
         public uint TextureSize { get; set; }
 
         public uint Unknown { get; set; }
-
         public bool IsSwitch => this.FileHeader.VersionA >= 0x0F;
 
         public TXTR() { }
@@ -106,12 +108,13 @@ namespace DKCTF
                     if (Meta != null)
                     {
                         var buffer = Meta.BufferInfo[0];
-                        reader.SeekBegin(buffer.StartOffset);
+                        // 3. Fix the absolute seek offset so it works for both standalone (0) and embedded textures
+                        reader.SeekBegin(StreamBaseOffset + buffer.StartOffset);
                         BufferData = IOFileExtension.DecompressedBuffer(reader, (uint)buffer.CompressedSize, (uint)buffer.DestSize, IsSwitch);
                     }
                     else
                     {
-                        BufferData = reader.ReadBytes((int)chunk.DataSize); 
+                        BufferData = reader.ReadBytes((int)chunk.DataSize);
                     }
                     break;
             }
@@ -119,29 +122,15 @@ namespace DKCTF
 
         public override void ReadMetaData(FileReader reader, CFormDescriptor pakVersion)
         {
-            Meta = new SMetaData();
-            // MPR
-            if (pakVersion.VersionA >= 1 && pakVersion.VersionB >= 1)
-            {
-                reader.ReadUInt32(); //Extra uint in MPR
-                Meta.Unknown = reader.ReadUInt32();
-                Meta.AllocCategory = reader.ReadUInt32();
-                Meta.GPUOffset = reader.ReadUInt32();
-                Meta.BaseAlignment = reader.ReadUInt32();
-                Meta.DecompressedSize = reader.ReadUInt32(); //total decomp size
-                Meta.TextureInfo = IOFileExtension.ReadList<STextureInfo>(reader);
-                Meta.BufferInfo = IOFileExtension.ReadList<SCompressedBufferInfo>(reader);
-            }
-            else
-            {
-                Meta.Unknown = reader.ReadUInt32();
-                Meta.AllocCategory = reader.ReadUInt32();
-                Meta.GPUOffset = reader.ReadUInt32();
-                Meta.BaseAlignment = reader.ReadUInt32();
-                Meta.GPUDataStart = reader.ReadUInt32();
-                Meta.GPUDataSize = reader.ReadUInt32();
-                Meta.BufferInfoV1 = IOFileExtension.ReadList<SCompressedBufferInfoV1>(reader);
-            }
+            Meta = new STextureMetaData();
+            reader.ReadUInt32(); //Extra uint in MPR
+            Meta.Unknown = reader.ReadUInt32();
+            Meta.AllocCategory = reader.ReadUInt32();
+            Meta.GPUOffset = reader.ReadUInt32();
+            Meta.BaseAlignment = reader.ReadUInt32();
+            Meta.DecompressedSize = reader.ReadUInt32(); //total decomp size
+            Meta.TextureInfo = IOFileExtension.ReadList<STextureInfo>(reader);
+            Meta.BufferInfo = IOFileExtension.ReadList<SCompressedBufferInfo>(reader);
         }
 
         public override void WriteMetaData(FileWriter writer, CFormDescriptor pakVersion)
@@ -169,6 +158,43 @@ namespace DKCTF
             }
         }
 
+
+
+        public void ReadEmbedded(FileReader reader)
+        {
+            StreamBaseOffset = reader.Position;
+            long startPos = StreamBaseOffset;
+
+            // Detect endianness just like in FileForm constructor
+            using (reader.TemporarySeek(startPos + 4, SeekOrigin.Begin))
+            {
+                IsLittleEndian = reader.ReadUInt32() != 0;
+                IsMPR = IsLittleEndian;
+            }
+
+            reader.SetByteOrder(!IsLittleEndian);
+            FileHeader = reader.ReadStruct<CFormDescriptor>();
+
+            if (FileHeader.VersionA == 0 && FileHeader.VersionB == 0)
+                reader.SetByteOrder(true);
+
+            // CFormDescriptor is exactly 32 bytes. The DataSize dictates the exact end of our embedded texture.
+            long formEnd = startPos + 32 + (long)FileHeader.DataSize;
+
+            while (reader.Position < formEnd)
+            {
+                var chunk = reader.ReadStruct<CChunkDescriptor>();
+                var pos = reader.Position;
+
+                reader.SeekBegin(pos + chunk.DataOffset);
+                ReadChunk(reader, chunk);
+
+                reader.SeekBegin(pos + chunk.DataSize);
+            }
+        }
+
+
+
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public class STextureHeader
         {
@@ -182,7 +208,7 @@ namespace DKCTF
         }
 
         //Meta data from PAK archive
-        public class SMetaData
+        public class STextureMetaData
         {
             public uint Unknown; //4
             public uint Unknown2;
@@ -222,5 +248,102 @@ namespace DKCTF
             public uint CompressedSize;
             public uint Offset;
         }
+
+        public static Dictionary<uint, TextureFormat> FormatList = new()
+        {
+            {  0, TextureFormat.R8_UNORM },
+            {  1, TextureFormat.R8_SNORM },
+            {  2, TextureFormat.R8_UINT },
+            {  3, TextureFormat.R8_SINT },
+            {  4, TextureFormat.R16_UNORM },
+            {  5, TextureFormat.R16_SNORM },
+            {  6, TextureFormat.R16_UINT },
+            {  7, TextureFormat.R16_SINT },
+            {  8, TextureFormat.R16_FLOAT },
+            {  9, TextureFormat.R32_UINT },
+            {  10, TextureFormat.R32_SINT },
+
+            {  11, TextureFormat.R32_FLOAT },
+
+            {  12, TextureFormat.RGBA8_UNORM },
+            {  13, TextureFormat.RGBA8_SRGB },
+            {  14, TextureFormat.RGBA16_FLOAT },
+            {  15, TextureFormat.RGBA32_FLOAT },
+            {  16, TextureFormat.D16_UNORM },
+            {  17, TextureFormat.D16_UNORM },
+            {  18, TextureFormat.D24_UNORM_S8_UINT },
+            {  19, TextureFormat.D32_FLOAT },
+            {  20, TextureFormat.BC1_UNORM },
+            {  21, TextureFormat.BC1_SRGB },
+            {  22, TextureFormat.BC2_UNORM },
+            {  23, TextureFormat.BC2_SRGB },
+            {  24, TextureFormat.BC3_UNORM },
+            {  25, TextureFormat.BC3_SRGB },
+            {  26, TextureFormat.BC4_UNORM },
+            {  27, TextureFormat.BC4_SNORM },
+            {  28, TextureFormat.BC5_UNORM },
+            {  29, TextureFormat.BC5_SNORM },
+            {  30, TextureFormat.RG11B10_FLOAT },
+            {  31, TextureFormat.R32_FLOAT },
+
+            {  32, TextureFormat.RG8_UNORM },
+            {  33, TextureFormat.RG8_SNORM },
+            {  34, TextureFormat.RG8_UINT },
+            {  35, TextureFormat.RG8_SINT },
+
+            {  36, TextureFormat.RG16_FLOAT },
+            {  37, TextureFormat.RG16_UNORM },
+            {  38, TextureFormat.RG16_SNORM },
+            {  39, TextureFormat.RG16_UINT },
+            {  40, TextureFormat.RG16_SINT },
+
+            {  41, TextureFormat.RGBB10A2_UNORM },
+            {  42, TextureFormat.RGB10A2_UINT },
+            {  43, TextureFormat.RG32_UINT },
+            {  44, TextureFormat.RG32_SINT },
+            {  45, TextureFormat.RG32_FLOAT },
+            {  46, TextureFormat.RGBA16_UNORM },
+            {  47, TextureFormat.RGBA16_SNORM },
+            {  48, TextureFormat.RGBA16_UINT },
+            {  49, TextureFormat.RGBA16_SINT },
+            {  50, TextureFormat.RGBA32_UINT },
+            {  51, TextureFormat.RGBA32_SINT },
+            {  52, TextureFormat.RGBA8_UNORM }, // None
+            {  53, TextureFormat.ASTC_4x4_UNORM },
+            {  54, TextureFormat.ASTC_5x4_UNORM },
+            {  55, TextureFormat.ASTC_5x5_UNORM },
+            {  56, TextureFormat.ASTC_6x5_UNORM },
+            {  57, TextureFormat.ASTC_6x6_UNORM },
+            {  58, TextureFormat.ASTC_8x5_UNORM },
+            {  59, TextureFormat.ASTC_8x6_UNORM },
+            {  60, TextureFormat.ASTC_8x8_UNORM },
+            {  61, TextureFormat.ASTC_10x5_UNORM },
+            {  62, TextureFormat.ASTC_10x6_UNORM},
+            {  63, TextureFormat.ASTC_10x8_UNORM},
+            {  64, TextureFormat.ASTC_10x10_UNORM},
+            {  65, TextureFormat.ASTC_12x10_UNORM},
+            {  66, TextureFormat.ASTC_12x12_UNORM},
+
+            {  67, TextureFormat.ASTC_4x4_SRGB},
+            {  68, TextureFormat.ASTC_5x4_SRGB },
+            {  69, TextureFormat.ASTC_5x5_SRGB },
+            {  70, TextureFormat.ASTC_6x5_SRGB },
+            {  71, TextureFormat.ASTC_6x6_SRGB },
+            {  72, TextureFormat.ASTC_8x5_SRGB },
+            {  73, TextureFormat.ASTC_8x6_SRGB },
+            {  74, TextureFormat.ASTC_8x8_SRGB},
+            {  75, TextureFormat.ASTC_10x5_SRGB },
+            {  76, TextureFormat.ASTC_10x6_SRGB},
+            {  77, TextureFormat.ASTC_10x8_SRGB},
+            {  78, TextureFormat.ASTC_10x10_SRGB},
+            {  79, TextureFormat.ASTC_12x10_SRGB},
+            {  80, TextureFormat.ASTC_12x12_SRGB},
+
+            {  81, TextureFormat.BC6H_UF16 },
+            {  82, TextureFormat.BC6H_SF16 },
+            {  83, TextureFormat.BC7_UNORM },
+            {  84, TextureFormat.BC7_SRGB },
+        };
+
     }
 }
